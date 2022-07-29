@@ -7,6 +7,8 @@
 #define MASTER_ACTIVATE 0x20
 #define SOFT_RESET      0x12
 #define DRIVER_CONTROL  0x01
+#define ANALOG_CONTROL  0x74
+#define DIGITAL_CONTROL 0x7e
 #define DATA_MODE       0x11
 #define SET_RAM_X_POS   0x44
 #define SET_RAM_Y_POS   0x45
@@ -147,16 +149,12 @@ static void send_data(ssd1608 *display, const uint8_t *data, size_t length) {
     display->cs_set(1);
 }
 
-static void send_command(ssd1608 *display, uint8_t command, const uint8_t *data, size_t length) {
+static void send_command(ssd1608 *display, uint8_t command) {
     uint8_t buf[1] = { command };
     display->dc_set(0);
     display->cs_set(0);
     display->write_blocking(buf, 1);
     display->cs_set(1);
-
-    if (data != NULL) {
-        send_data(display, data, length);
-    }
 }
 
 static void wait_for_busy_pin(ssd1608 *display) {
@@ -171,7 +169,7 @@ static void setup(ssd1608 *display) {
     display->reset_set(1);
     display->delay(500);
 
-    send_command(display, SOFT_RESET, NULL, 0);
+    send_command(display, SOFT_RESET);
     display->delay(1000);
     wait_for_busy_pin(display);
 }
@@ -238,105 +236,134 @@ void ssd1608_render(ssd1608 *display) {
 
     uint8_t buff[4] = {0x00, 0x00, 0x00, 0x00};
 
+    send_command(display, ANALOG_CONTROL);
     buff[0] = 0x54;
-    send_command(display, 0x74, buff, 1); // # Set Analog Block Control
+    send_data(display, buff, 1);
 
+    send_command(display, DIGITAL_CONTROL);  // # Set Digital Block Control
     buff[0] = 0x3b;
-    send_command(display, 0x7e, buff, 1);  // # Set Digital Block Control
+    send_data(display, buff, 1);
 
+    send_command(display, DRIVER_CONTROL);
     buff[0] = (d.rows - 1) & 0xff;
     buff[1] = (d.rows - 1) >> 8;
     buff[2] = 0x00;
-    send_command(display, DRIVER_CONTROL, buff, 3);
+    send_data(display, buff, 3);
 
+    send_command(display, WRITE_DUMMY);
     buff[0] = 0x1b;
-    send_command(display, WRITE_DUMMY, buff, 1);
+    send_data(display, buff, 1);
 
+    send_command(display, WRITE_GATELINE);
     buff[0] = 0x0b;
-    send_command(display, WRITE_GATELINE, buff, 1);
+    send_data(display, buff, 1);
 
+    send_command(display, DATA_MODE);
     buff[0] = 0x03;
-    send_command(display, DATA_MODE, buff, 1);
+    send_data(display, buff, 1);
 
+    send_command(display, SET_RAM_X_POS);
     buff[0] = 0x00;
     buff[1] = d.cols / 8 - 1;
-    send_command(display, SET_RAM_X_POS, buff, 2);
+    send_data(display, buff, 2);
 
+    send_command(display, SET_RAM_Y_POS);
     buff[0] = 0x00;
     buff[1] = 0x00;
     buff[2] = (d.rows - 1) & 0xff;
     buff[3] = (d.rows - 1) >> 8;
-    send_command(display, SET_RAM_Y_POS, buff, 4);
+    send_data(display, buff, 4);
 
-    // buff[0] = 0x70;
+    send_command(display, WRITE_VCOM);
     buff[0] = 0x3c;
-    send_command(display, WRITE_VCOM, buff, 1);
+    send_data(display, buff, 1);
 
     // lut data
     switch (display->colors) {
     case black_white_red:
+        send_command(display, SOURCE_VOLTAGE);
         buff[0] = 0x30;
         buff[1] = 0xac;
         buff[2] = 0x22;
-        send_command(display, SOURCE_VOLTAGE, buff, 3);
+        send_data(display, buff, 3);
 
-        send_command(display, WRITE_LUT, luts_red, LUTS_LENGTH);
+        send_command(display, WRITE_LUT);
+        send_data(display, luts_red, LUTS_LENGTH);
         break;
 
     case black_white_yellow:
+        send_command(display, SOURCE_VOLTAGE);
         buff[0] = 0x07;
         buff[1] = 0xac;
         buff[2] = 0x32;
-        send_command(display, SOURCE_VOLTAGE, buff, 3);
+        send_data(display, buff, 3);
 
-        send_command(display, WRITE_LUT, luts_yellow, LUTS_LENGTH);
+        send_command(display, WRITE_LUT);
+        send_data(display, luts_yellow, LUTS_LENGTH);
         break;
 
     case black_white:
-        send_command(display, WRITE_LUT, luts_black, LUTS_LENGTH);
+        send_command(display, WRITE_LUT);
+        send_data(display, luts_black, LUTS_LENGTH);
         break;
     }
 
     // border color
     switch (display->border_color) {
     case black_px:
+        send_command(display, WRITE_BORDER);
         buff[0] = 0b00000000;
-        send_command(display, WRITE_BORDER, buff, 1);
+        send_data(display, buff, 1);
         break;
     case white_px:
+        send_command(display, WRITE_BORDER);
         buff[0] = 0b00110001;
-        send_command(display, WRITE_BORDER, buff, 1);
+        send_data(display, buff, 1);
         break;
     case color_px:
         if (display->colors == black_white_red) {
+            send_command(display, WRITE_BORDER);
             buff[0] = 0b01110011;
-            send_command(display, WRITE_BORDER, buff, 1);
+            send_data(display, buff, 1);
         } else if (display->colors == black_white_yellow) {
+            send_command(display, WRITE_BORDER);
             buff[0] = 0b00110011;
-            send_command(display, WRITE_BORDER, buff, 1);
+            send_data(display, buff, 1);
         }
-        break;
+       break;
     }
 
     // black & white
+    send_command(display, SET_RAM_X_COUNT);
     buff[0] = 0x00;
-    send_command(display, SET_RAM_X_COUNT, buff, 1);
+    send_data(display, buff, 1);
+
+    send_command(display, SET_RAM_Y_COUNT);
     buff[0] = 0x00;
     buff[1] = 0x00;
-    send_command(display, SET_RAM_Y_COUNT, buff, 2);
-    send_command(display, WRITE_RAM, display->buffer, buffer_len - 1);
+    send_data(display, buff, 2);
+
+    send_command(display, WRITE_RAM);
+    send_data(display, display->buffer, buffer_len - 1);
 
     // color
+    send_command(display, SET_RAM_X_COUNT);
     buff[0] = 0x00;
-    send_command(display, SET_RAM_X_COUNT, buff, 1);
+    send_data(display, buff, 1);
+
+    send_command(display, SET_RAM_Y_COUNT);
     buff[0] = 0x00;
     buff[1] = 0x00;
-    send_command(display, SET_RAM_Y_COUNT, buff, 2);
-    send_command(display, WRITE_ALT_RAM, display->alt_buffer, buffer_len - 1);
+    send_data(display, buff, 2);
+
+    send_command(display, WRITE_ALT_RAM);
+    send_data(display, display->alt_buffer, buffer_len - 1);
 
     wait_for_busy_pin(display);
 
+    send_command(display, MASTER_ACTIVATE);
     buff[0] = 0xc7;
-    send_command(display, MASTER_ACTIVATE, buff, 1);
-    send_command(display, MASTER_ACTIVATE, NULL, 0);
+    send_data(display, buff, 1);
+
+    send_command(display, MASTER_ACTIVATE);
 }
